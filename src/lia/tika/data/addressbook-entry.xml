@@ -1,0 +1,12 @@
+<?xml version='1.0' encoding='utf-8'?>
+<address-book>
+    <contact type="individual">
+        <name>Zane Pasolini</name>
+        <address>999 W. Prince St.</address>
+        <city>New York</city>
+        <province>NY</province>
+        <postalcode>10013</postalcode>
+        <country>USA</country>
+        <telephone>+1 212 345 6789</telephone>
+    </contact>
+</address-book>

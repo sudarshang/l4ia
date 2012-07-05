@@ -1,0 +1,10 @@
+# Format:
+#
+#       qnum   0   doc-name     is-relevant
+#
+#
+
+0 	 0 	 apache1.0.txt     	 1
+0 	 0 	 apache1.1.txt     	 1
+0 	 0 	 apache2.0.txt     	 1
+

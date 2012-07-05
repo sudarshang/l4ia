@@ -1,0 +1,641 @@
+<project name="LuceneInAction" default="default">
+  <target name="help">
+    <loadfile property="readme" srcfile="README"/>
+    <echo level="info">
+      ${readme}
+    </echo>
+  </target>
+
+  <property name="build.dir" location="build"/>
+  <property name="data.dir" location="data"/>
+
+  <path id="classpath">
+    <fileset dir="lib"/>
+  </path>
+
+  <path id="nutchclasspath">
+    <fileset dir="lib/nutch"/>
+  </path>
+
+  <macrodef name="run-main">
+    <attribute name="class"/>
+    <attribute name="spawn" default="no"/>
+    <element name="args" optional="yes"/>
+
+    <sequential>
+      <echo>Running @{class}...</echo>
+      <java classname="@{class}" fork="true" spawn="@{spawn}">
+        <sysproperty key="index.dir" file="${build.dir}/index"/>
+        <args/>
+        <classpath>
+          <path refid="classpath"/>
+          <pathelement location="${build.dir}/classes"/>
+        </classpath>
+      </java>
+    </sequential>
+  </macrodef>
+
+  <macrodef name="run-nutch-main">
+    <attribute name="class"/>
+    <attribute name="spawn" default="no"/>
+    <element name="args" optional="yes"/>
+
+    <sequential>
+      <echo>Running @{class}...</echo>
+      <java classname="@{class}" fork="true" spawn="@{spawn}">
+        <sysproperty key="index.dir" file="${build.dir}/index"/>
+        <args/>
+        <classpath>
+          <path refid="nutchclasspath"/>
+          <pathelement location="${build.dir}/classes"/>
+          <pathelement location="conf"/> <!-- for Nutch -->
+        </classpath>
+      </java>
+    </sequential>
+  </macrodef>
+
+  <macrodef name="info">
+    <text name="text"/>
+    <sequential>
+      <echo level="info">@{text}</echo>
+      <input addProperty="nopause" message="Press return to continue..."/>
+    </sequential>
+  </macrodef>
+
+  <target name="clean" description="Remove temporary build artifacts">
+    <delete dir="${build.dir}"/>
+  </target>
+
+  <target name="compile" description="Compile source code">
+    <mkdir dir="${build.dir}/classes"/>
+    <javac srcdir="src"
+           destdir="${build.dir}/classes"
+           classpathref="classpath"
+           encoding="UTF8"
+           debug="on"
+           deprecation="on">
+      <include name="**/*.java"/>
+      <exclude name="**/NutchExample.java"/>
+    </javac>
+
+    <copy todir="${build.dir}/classes/lia/tools">
+      <fileset dir="src/lia/tools" excludes="**/*.java"/>
+    </copy>
+  </target>
+
+  <!-- Nutch uses Lucene 2.4.0, but the rest of the sources use 3.0.0,
+       so we set up a separate compile target & classpath -->
+  <target name="compile-nutch" description="Compile source code">
+    <mkdir dir="${build.dir}/classes"/>
+    <javac srcdir="src"
+           destdir="${build.dir}/classes"
+           classpathref="nutchclasspath"
+           encoding="UTF8"
+           debug="on"
+           deprecation="off">
+      <include name="**/NutchExample.java"/>
+    </javac>
+
+    <copy todir="${build.dir}/classes/lia/tools">
+      <fileset dir="src/lia/tools" excludes="**/*.java"/>
+    </copy>
+  </target>
+
+  <target name="check-index">
+    <available property="test.index.exists" file="${build.dir}/index"/>
+  </target>
+
+  <target name="build-test-index" depends="compile,check-index"
+          unless="test.index.exists"
+          description="Build test data index">
+    <info>
+      The test index is built using CreateTestIndex.
+    </info>
+    <run-main class="lia.common.CreateTestIndex">
+      <args>
+        <arg file="${data.dir}"/>
+        <arg file="${build.dir}/index"/>
+      </args>
+    </run-main>
+  </target>
+
+  <target name="prepare" depends="compile,compile-nutch,build-test-index"/>
+
+  <target name="test" depends="prepare" description="Run JUnit test cases">
+    <info>
+      The bulk of Lucene in Action's code is in JUnit test cases.
+      All tests are run by default.  To run an individual test, set
+      the "test" Ant property, for example, to run QueryParserTest:
+
+          ant test -Dtest=QueryParser
+
+    </info>
+
+    <junit errorProperty="test.failed"
+      failureProperty="test.failed"
+      reloading="false">
+      <sysproperty key="index.dir" file="${build.dir}/index"/>
+      <classpath>
+        <path refid="classpath"/>
+        <pathelement location="${build.dir}/classes"/>
+      </classpath>
+      <formatter type="brief" usefile="false"/>
+      <batchtest unless="test">
+        <fileset dir="${build.dir}/classes">
+          <include name="**/*Test.class"/>
+	</fileset>
+      </batchtest>
+      <batchtest if="test">
+        <fileset dir="${build.dir}/classes" includes="**/${test}Test.class"/>
+      </batchtest>
+    </junit>
+
+    <fail if="test.failed">Test(s) failed!!!</fail>
+  </target>
+
+
+  <!--
+     M e e t   L u c e n e
+  -->
+  <target name="Indexer" depends="prepare"
+          description="Indexes a directory of .txt files">
+    <info>
+      Index *.txt files in a directory into a Lucene index.  Use the
+      Searcher target to search this index.
+
+      Indexer is covered in the "Meet Lucene" chapter.
+    </info>
+
+    <input message="Directory for new Lucene index:"
+           addProperty="index.dir"
+           defaultValue="indexes/MeetLucene"
+    />
+
+    <input message="Directory with .txt files to index:"
+           addProperty="text.dir"
+           defaultValue="src/lia/meetlucene/data"
+    />
+
+    <input message="Overwrite ${index.dir}?"
+           validargs="y,n"
+           addproperty="confirm.overwrite"
+    />
+    <condition property="abort">
+      <equals arg1="n" arg2="${confirm.overwrite}"/>
+    </condition>
+    <fail if="abort">Aborted.</fail>
+
+    <run-main class="lia.meetlucene.Indexer">
+      <args>
+        <arg file="${index.dir}"/>
+        <arg file="${text.dir}"/>
+      </args>
+    </run-main>
+  </target>
+
+  <target name="Searcher" depends="prepare"
+          description="Searches an index built by Indexer">
+    <info>
+      Search an index built using Indexer.
+
+      Searcher is described in the "Meet Lucene" chapter.
+    </info>
+
+    <input message="Directory of existing Lucene index built by Indexer: "
+           addProperty="index.dir"
+           defaultValue="indexes/MeetLucene"
+    />
+
+    <input message="Query: "
+           addProperty="query"
+           defaultValue="patent"
+    />
+
+    <run-main class="lia.meetlucene.Searcher">
+      <args>
+        <arg file="${index.dir}"/>
+        <arg value="${query}"/>
+      </args>
+    </run-main>
+  </target>
+
+  <!--
+      I n d e x i n g
+  -->
+
+  <target name="VerboseIndexing" depends="prepare"
+          description="Shows IndexWriter's infoStream output">
+    <info>
+      Show's IndexWriter's infoStream output.
+    </info>
+
+    <run-main class="lia.indexing.VerboseIndexing"/>
+  </target>
+
+  <!--
+     S e a r c h i n g
+  -->
+  <target name="Explainer" depends="prepare"
+          description="Demonstrates Lucene's Explanation feature">
+    <info>
+      Display Lucene's Explanation of each resulting hit of a search.
+
+      Any file system Lucene index and query may be used; use the defaults
+      for an example.
+
+      The Explanation feature is detailed in the "Searching" chapter.
+    </info>
+
+    <input message="Directory for existing Lucene index: [build/index]"
+           addProperty="index.dir"
+           defaultValue="build/index"
+    />
+    <input message="Query: [junit]"
+           addProperty="query"
+           defaultValue="junit"
+    />
+
+    <run-main class="lia.searching.Explainer">
+      <args>
+        <arg file="${index.dir}"/>
+        <arg value="${query}"/>
+      </args>
+    </run-main>
+  </target>
+
+
+  <!--
+     A n a l y s i s
+  -->
+  <target name="AnalyzerDemo" depends="prepare"
+          description="Demonstrates analysis of text">
+    <info>
+      Demonstrates analysis of sample text.
+
+      Refer to the "Analysis" chapter for much more on this
+      extremely crucial topic.
+    </info>
+
+    <input message="String to analyze: [This string will be analyzed.]"
+           addProperty="string"
+           defaultValue="This string will be analyzed."
+    />
+    <run-main class="lia.analysis.AnalyzerDemo">
+      <args>
+        <arg value="${string}"/>
+      </args>
+    </run-main>
+  </target>
+
+  <target name="AnalyzerUtils" depends="prepare"
+          description="Demonstrates analysis of static text">
+    <info>
+      Demonstrates analysis of static text with
+      SimpleAnalyzer and StandardAnalyzer
+    </info>
+
+    <run-main class="lia.analysis.AnalyzerUtils"/>
+  </target>
+
+  <target name="MetaphoneAnalyzer" depends="prepare"
+          description="Demonstrates analysis of static text using MetaphoneAnalyzer">
+    <info>
+      Demonstrates analysis of static text with
+      SimpleAnalyzer and StandardAnalyzer
+    </info>
+
+    <run-main class="lia.analysis.codec.MetaphoneAnalyzerTest"/>
+  </target>
+
+  <target name="SynonymAnalyzerViewer" depends="prepare"
+          description="Examples of synonym injection">
+    <info>
+      Using a custom SynonymAnalyzer, two fixed strings are
+      analyzed with the results displayed.  Synonyms, from the
+      WordNet database, are injected into the same positions
+      as the original words.
+
+      See the "Analysis" chapter for more on synonym injection and
+      position increments.  The "Tools and extensions" chapter covers
+      the WordNet feature found in the Lucene sandbox.
+    </info>
+
+    <run-main class="lia.analysis.synonym.SynonymAnalyzerViewer">
+      <args>
+        <arg file="indexes/wordnet"/>
+      </args>
+    </run-main>
+  </target>
+
+  <target name="ChineseDemo" depends="prepare"
+          description="Examples of Chinese analysis">
+    <info>
+      The Chinese text of "tao te ching" is analyzed with four
+      different analyzers.  The results are displayed in AWT GUI
+      labels to avoid font issues in the console.  Your system may
+      still not show the example properly if you do not have the
+      appropriate font.  The program is spawned, requiring you
+      to close it independently of Ant.  Five windows are created,
+      which overlap one another; move the top one to see the one below.
+
+      See the "Analysis" chapter for a screenshot of this example
+      and more details on non-English analysis.
+    </info>
+
+    <run-main class="lia.analysis.i18n.ChineseDemo" spawn="no"/>
+  </target>
+
+  <target name="NutchExample" depends="prepare"
+          description="Demonstrates Nutch's analyzer">
+    <info>
+      Demonstrates Nutch's unique analysis process of bigramming common
+      terms.
+
+      Nutch analysis is covered in the "Analysis" chapter.
+    </info>
+
+    <run-nutch-main class="lia.analysis.nutch.NutchExample"/>
+  </target>
+
+  <!--
+     A d v a n c e d     S e a r c h i n g
+  -->
+  <target name="BooksLikeThis" depends="prepare"
+          description="Demonstrates a term vector use">
+    <info>
+      Demonstrates use of term vectors for use in locating
+      other documents like a given document.
+
+      Term vectors and the code used in this example are discussed in
+      the "Advanced Searching" chapter.
+    </info>
+
+    <run-main class="lia.advsearching.BooksLikeThis"/>
+  </target>
+
+  <target name="SortingExample" depends="prepare"
+          description="Demonstrates several ways to sort results">
+    <info>
+      Lucene's sorting capabilities are demonstrated by sorting
+      the same search results in various ways.
+
+      Sorting is covered in the "Advanced searching" chapter.
+    </info>
+
+    <run-main class="lia.advsearching.SortingExample"/>
+  </target>
+
+  <!--
+    T i k a
+  -->
+  <target name="TikaIndexer" depends="prepare"
+          description="Indexes a directory of .txt files">
+    <info>
+      Index all files, using Tika to extract text, in a directory into
+      a Lucene index.  Use the Searcher target to search this index.
+
+      TikaIndexer is covered in the "Extracting document text with
+      Tika" chapter.
+    </info>
+
+    <input message="Directory for new Lucene index:"
+           addProperty="index.dir"
+           defaultValue="indexes/Tika"
+    />
+
+    <input message="Directory with files to index:"
+           addProperty="text.dir"
+           defaultValue="src/lia/tika/data"
+    />
+
+    <input message="Overwrite ${index.dir}?"
+           validargs="y,n"
+           addproperty="confirm.overwrite"
+    />
+    <condition property="abort">
+      <equals arg1="n" arg2="${confirm.overwrite}"/>
+    </condition>
+    <fail if="abort">Aborted.</fail>
+
+    <run-main class="lia.tika.TikaIndexer">
+      <args>
+        <arg file="${index.dir}"/>
+        <arg file="${text.dir}"/>
+      </args>
+    </run-main>
+  </target>
+
+  <target name="SAXXMLDocument" depends="prepare"
+          description="Transforms custom XML file into a Document">
+    <info>
+      Translates a custom XML file into a Document using a SAX XML
+      parser.  This is covered in chapter 7.
+    </info>
+
+    <run-main class="lia.tika.SAXXMLDocument">
+      <args>
+        <arg file="src/lia/tika/data/addressbook-entry.xml"/>
+      </args>
+    </run-main>
+  </target>
+
+  <target name="DigesterXMLDocument" depends="prepare"
+          description="Transforms custom XML file into a Document.">
+    <info>
+      Translates a custom XML file into a Document using Apache
+      Commons Digester.  This is covered in chapter 7.
+    </info>
+
+    <run-main class="lia.tika.DigesterXMLDocument">
+      <args>
+        <arg file="src/lia/tika/data/addressbook.xml"/>
+      </args>
+    </run-main>
+  </target>
+
+  <!--
+      T o o l s & E x t e n s i o n s
+  -->
+
+  <target name="SearchServer" depends="prepare"
+          description="Remote and multi-index searching">
+    <info>
+      Lucene's remote and multiple index searching capabilities are
+      demonstrated in this example.  The multiple index searching is
+      done using both the sequential MultiSearcher and multi-threaded
+      ParallelMultiSearcher APIs over 26 (one for each letter of the
+      alphabet) indexes.
+
+      Remote, multiple, and parallel indexing searching is covered in
+      the "Advanced searching" chapter.
+
+      WARNING: SearchServer currently does not shut down gracefully,
+      though the SearchClient does complete its searches successfully.
+      Ant is configured to time-out SearchServer and kill it forcefully
+      after 20 seconds resulting in an ugly "error" message.
+    </info>
+
+    <parallel timeout="20000">
+      <run-main class="lia.tools.remote.SearchServer">
+        <args>
+          <arg file="indexes/distributed"/>
+        </args>
+      </run-main>
+      <sequential>
+        <sleep seconds="5"/>
+        <run-main class="lia.tools.remote.SearchClient">
+          <args>
+            <arg value="java"/>
+          </args>
+        </run-main>
+      </sequential>
+    </parallel>
+  </target>
+
+  <target name="HighlightIt" depends="prepare"
+          description="Demonstrates Lucene's highlighter">
+    <info>
+      This example shows how Lucene's highlighter, a sandbox package,
+      is able to higlight hits in text.
+
+      This application is described in more detail in the
+      "Tools and extensions" chapter.
+    </info>
+
+    <run-main class="lia.tools.HighlightIt">
+      <args>
+        <arg file="${build.dir}/HighlightIt-out.html"/>
+      </args>
+    </run-main>
+  </target>
+
+  <target name="FastVectorHighlighterSample" depends="prepare"
+          description="Demonstrates Lucene's fast-vector-highlighter">
+    <info>
+      This example shows how Lucene's FastVectorHighlighter, a new
+      sandbox package in 2.9 that's an alternative to Highlighter, is
+      able to higlight hits in text.
+
+      This application is described in more detail in the
+      "Tools and extensions" chapter.
+    </info>
+
+    <run-main class="lia.tools.FastVectorHighlighterSample">
+      <args>
+        <arg file="${build.dir}/FastVectorHighlighterSample-out.html"/>
+      </args>
+    </run-main>
+  </target>
+
+  <target name="SpatialLucene"
+	  depends="prepare"
+          description="Spatial search with Lucene">
+    <info>
+      This example shows how to index spatial data into a Lucene
+      index, and then filter and sort according to distance from an
+      arbitrary origin point.
+    </info>
+
+    <run-main class="lia.tools.SpatialLuceneExample">
+    </run-main>
+  </target>
+
+  <target name="CreateSpellCheckerIndex"
+	  depends="prepare"
+          description="Create spell checker index.">
+    <info>
+      Create spell checker index.  After creating this, run
+      SpellCheckerExample to respell words.
+    </info>
+
+    <input message="Directory for spellchecker index:"
+           addProperty="spell.index.dir"
+           defaultValue="indexes/spellchecker"
+    />
+
+    <input message="Directory with existing index:"
+           addProperty="index.dir"
+           defaultValue="indexes/wordnet"
+    />
+
+    <input message="Field name to derive dictionary from:"
+           addProperty="spell.field.name"
+           defaultValue="word"
+    />
+
+    <run-main class="lia.tools.CreateSpellCheckerIndex">
+      <args>
+	<arg file="${spell.index.dir}"/>
+	<arg file="${index.dir}"/>
+	<arg value="${spell.field.name}"/>
+      </args>
+    </run-main>
+  </target>
+
+  <target name="SpellCheckerExample"
+	  depends="prepare"
+          description="Tests respelling a word">
+    <info>
+      Tests respelling a word.
+    </info>
+
+    <input message="Directory for spellchecker index:"
+           addProperty="spell.index.dir"
+           defaultValue="indexes/spellchecker"
+    />
+
+    <input message="Word to respell:"
+           addProperty="spell.word"
+           defaultValue="letuce"
+    />
+
+    <run-main class="lia.tools.SpellCheckerExample">
+      <args>
+	<arg file="${spell.index.dir}"/>
+	<arg value="${spell.word}"/>
+      </args>
+    </run-main>
+  </target>
+
+  <!--
+      A d m i n i s t r a t i o n  &  P e r f o r m a n c e  T u n i n g
+  -->
+
+  <target name="OpenFileLimitCheck" depends="prepare"
+          description="Tests how many open files your environment allows">
+    <info>
+      Tests how many open files your environment allows.  This tool is
+      described in chapter 11.
+    </info>
+
+    <run-main class="lia.admin.OpenFileLimitCheck"/>
+  </target>
+
+
+  <!--
+      B e n c h m a r k
+  -->
+
+  <target name="PrecisionRecall"
+	  depends="prepare"
+          description="Measure precision and recall using contrib/benchmark">
+    <info>
+      This example shows how to measure the quality of your search
+      results, by measuring precision and recall.
+    </info>
+
+    <run-main class="lia.benchmark.PrecisionRecall">
+    </run-main>
+  </target>
+
+  <target name="ready-set-go">
+    <echo level="info">
+      The code will next be compiled and the test indexes will be
+      created.  This process is only done once.  Follow the
+      instructions from the README (or as shown from "ant help")
+      after this process completes.
+    </echo>
+  </target>
+
+  <target name="default" depends="help,ready-set-go,prepare"/>
+</project>
